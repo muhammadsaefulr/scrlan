@@ -1,0 +1,9 @@
+.git
+.gitignore
+.codebase-memory
+.env
+Dockerfile
+docker-compose.yml
+README.md
+FLOW.md
+*.log
