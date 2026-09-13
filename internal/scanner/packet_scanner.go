@@ -36,7 +36,7 @@ type packetScanner struct {
 
 func newPacketScanner() *packetScanner {
 	return &packetScanner{
-		interfaceName:  os.Getenv("SCAN_INTERFACE"),
+		interfaceName:  os.Getenv("INET_INTERFACE"),
 		timeout:        defaultScanTimeout,
 		manufacturers:  loadManufacturers(os.Getenv("SCAN_OUI_FILE")),
 		dnsConcurrency: envInt("SCAN_DNS_CONCURRENCY", 32),
@@ -174,6 +174,36 @@ func RangeFromSubnet(subnet string) (string, string, error) {
 		to[index] |= ^network.Mask[index]
 	}
 	return from.String(), to.String(), nil
+}
+
+func RangeFromInterface(interfaceName string) (string, string, error) {
+	interfaceName = strings.TrimSpace(interfaceName)
+	if interfaceName == "" {
+		return "", "", fmt.Errorf("INET_INTERFACE is required")
+	}
+	iface, err := net.InterfaceByName(interfaceName)
+	if err != nil {
+		return "", "", fmt.Errorf("find interface %q: %w", interfaceName, err)
+	}
+	addresses, err := iface.Addrs()
+	if err != nil {
+		return "", "", fmt.Errorf("list addresses for interface %q: %w", interfaceName, err)
+	}
+	for _, address := range addresses {
+		network, ok := address.(*net.IPNet)
+		if !ok || network.IP.To4() == nil {
+			continue
+		}
+		ipv4 := network.IP.To4()
+		mask := network.Mask
+		from := ipv4.Mask(mask).To4()
+		to := make(net.IP, net.IPv4len)
+		for index := range to {
+			to[index] = from[index] | ^mask[index]
+		}
+		return from.String(), to.String(), nil
+	}
+	return "", "", fmt.Errorf("interface %q has no IPv4 address", interfaceName)
 }
 
 func ipInRange(ip net.IP, from net.IP, to net.IP) bool {

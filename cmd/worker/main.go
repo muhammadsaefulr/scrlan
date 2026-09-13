@@ -51,14 +51,9 @@ func main() {
 		}
 		interval = time.Duration(seconds) * time.Second
 	}
-	netFrom := os.Getenv("SCAN_NET_FROM")
-	netTo := os.Getenv("SCAN_NET_TO")
-	if netFrom == "" || netTo == "" {
-		var rangeErr error
-		netFrom, netTo, rangeErr = scanner.RangeFromSubnet(os.Getenv("SCAN_SUBNET"))
-		if rangeErr != nil {
-			log.Fatalf("scan range configuration is invalid: %v", rangeErr)
-		}
+	netFrom, netTo, err := scanner.RangeFromInterface(os.Getenv("INET_INTERFACE"))
+	if err != nil {
+		log.Fatalf("scan interface configuration is invalid: %v", err)
 	}
 
 	repo := repository.NewDeviceRepository(db)
