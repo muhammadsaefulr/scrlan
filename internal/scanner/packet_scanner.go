@@ -112,21 +112,20 @@ func findLocalInterface(device pcap.Interface, from net.IP, to net.IP) (*net.Int
 
 	for index := range interfaces {
 		iface := &interfaces[index]
+		if iface.Name != device.Name {
+			continue
+		}
 		localAddresses, _ := iface.Addrs()
 		for _, localAddress := range localAddresses {
 			localIP := addressIP(localAddress)
-			if localIP == nil || !ipInRange(localIP, from, to) {
+			if localIP == nil {
 				continue
 			}
-			for _, deviceAddress := range device.Addresses {
-				if deviceAddress.IP != nil && deviceAddress.IP.Equal(localIP) {
-					return iface, localIP.To4(), nil
-				}
-			}
+			return iface, localIP, nil
 		}
 	}
 
-	return nil, nil, fmt.Errorf("interface %q has no local IPv4 address in range %s-%s", device.Name, from, to)
+	return nil, nil, fmt.Errorf("interface %q has no local IPv4 address for scan range %s-%s", device.Name, from, to)
 }
 
 func addressIP(address net.Addr) net.IP {

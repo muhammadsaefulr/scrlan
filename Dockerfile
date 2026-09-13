@@ -23,5 +23,5 @@ COPY --from=build /out/scrlan /usr/local/bin/scrlan
 RUN setcap cap_net_raw,cap_net_admin=eip /usr/local/bin/scrlan
 
 USER app
-EXPOSE 8080
+EXPOSE 8075
 ENTRYPOINT ["/usr/local/bin/scrlan"]
