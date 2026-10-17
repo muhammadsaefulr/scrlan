@@ -33,13 +33,18 @@ func (h *Handler) scan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	devices, err := h.scanner.Scan(netFrom, netTo)
+	scannedDevices, err := h.scanner.Scan(netFrom, netTo)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := h.devices.Sync(devices, time.Now().UTC()); err != nil {
+	if err := h.devices.Sync(scannedDevices, time.Now().UTC()); err != nil {
 		writeError(w, http.StatusInternalServerError, "unable to sync scanned devices")
+		return
+	}
+	devices, err := h.devices.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "unable to retrieve devices")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "net_from": netFrom, "net_to": netTo, "data": devices})

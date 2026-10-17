@@ -39,15 +39,18 @@ func (r *DeviceRepository) Sync(devices []scanner.Device, seenAt time.Time) erro
 			}
 
 			history := model.DeviceHistory{
-				DeviceID:     current.ID,
-				IP:           device.IP,
-				MAC:          device.MAC,
-				Hostname:     device.Hostname,
-				Manufacturer: device.Manufacturer,
-				FirstSeen:    seenAt,
-				LastSeen:     seenAt,
+				DeviceID: current.ID,
 			}
-			if err := tx.Create(&history).Error; err != nil {
+			if err := tx.Where("device_id = ?", current.ID).First(&history).Error; err != nil && err != gorm.ErrRecordNotFound {
+				return err
+			}
+			history.IP = device.IP
+			history.MAC = device.MAC
+			history.Hostname = device.Hostname
+			history.Manufacturer = device.Manufacturer
+			history.FirstSeen = seenAt
+			history.LastSeen = seenAt
+			if err := tx.Save(&history).Error; err != nil {
 				return err
 			}
 		}

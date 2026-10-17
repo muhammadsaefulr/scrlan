@@ -32,6 +32,9 @@ type packetScanner struct {
 	manufacturers  map[string]string
 	dnsConcurrency int
 	dnsTimeout     time.Duration
+	netbiosEnabled bool
+	netbiosTimeout time.Duration
+	hostnameCache  *hostnameCache
 }
 
 func newPacketScanner() *packetScanner {
@@ -41,6 +44,9 @@ func newPacketScanner() *packetScanner {
 		manufacturers:  loadManufacturers(os.Getenv("SCAN_OUI_FILE")),
 		dnsConcurrency: envInt("SCAN_DNS_CONCURRENCY", 32),
 		dnsTimeout:     time.Duration(envInt("SCAN_DNS_TIMEOUT_MS", 150)) * time.Millisecond,
+		netbiosEnabled: envBool("NETBIOS_ENABLED", false),
+		netbiosTimeout: time.Duration(envInt("NETBIOS_TIMEOUT_MS", 300)) * time.Millisecond,
+		hostnameCache:  newHostnameCache(time.Duration(envInt("HOSTNAME_CACHE_TTL_SECONDS", 600)) * time.Second),
 	}
 }
 
@@ -78,7 +84,13 @@ func (s *packetScanner) Scan(netFrom string, netTo string) ([]contract.Device, e
 	}
 
 	devices := readARPReplies(handle, from, to, s.timeout, s.manufacturers)
-	return enrichDevices(devices, s.dnsConcurrency, s.dnsTimeout), nil
+	return enrichDevices(devices, enrichmentOptions{
+		concurrency:    s.dnsConcurrency,
+		dnsTimeout:     s.dnsTimeout,
+		netbiosEnabled: s.netbiosEnabled,
+		netbiosTimeout: s.netbiosTimeout,
+		hostnameCache:  s.hostnameCache,
+	}), nil
 }
 
 func (s *packetScanner) selectDevice(from net.IP, to net.IP) (pcap.Interface, error) {
@@ -294,26 +306,32 @@ func readARPReplies(handle *pcap.Handle, from net.IP, to net.IP, timeout time.Du
 	return devices
 }
 
-func enrichDevices(devices []contract.Device, concurrency int, timeout time.Duration) []contract.Device {
-	if concurrency < 1 {
-		concurrency = 1
+type enrichmentOptions struct {
+	concurrency    int
+	dnsTimeout     time.Duration
+	netbiosEnabled bool
+	netbiosTimeout time.Duration
+	hostnameCache  *hostnameCache
+}
+
+func enrichDevices(devices []contract.Device, options enrichmentOptions) []contract.Device {
+	if options.concurrency < 1 {
+		options.concurrency = 1
 	}
-	if timeout <= 0 {
-		timeout = 150 * time.Millisecond
+	if options.dnsTimeout <= 0 {
+		options.dnsTimeout = 150 * time.Millisecond
+	}
+	if options.netbiosTimeout <= 0 {
+		options.netbiosTimeout = 300 * time.Millisecond
 	}
 	jobs := make(chan int)
 	var wait sync.WaitGroup
-	for worker := 0; worker < concurrency; worker++ {
+	for worker := 0; worker < options.concurrency; worker++ {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
 			for index := range jobs {
-				ctx, cancel := context.WithTimeout(context.Background(), timeout)
-				hostnames, err := net.DefaultResolver.LookupAddr(ctx, devices[index].IP)
-				cancel()
-				if err == nil && len(hostnames) > 0 {
-					devices[index].Hostname = strings.TrimSuffix(hostnames[0], ".")
-				}
+				devices[index].Hostname = resolveHostnameCached(devices[index].IP, options)
 			}
 		}()
 	}
@@ -325,9 +343,42 @@ func enrichDevices(devices []contract.Device, concurrency int, timeout time.Dura
 	return devices
 }
 
+func resolveHostname(ip string, options enrichmentOptions) string {
+	if options.netbiosEnabled {
+		if hostname, err := lookupNetBIOS(ip, options.netbiosTimeout); err == nil && hostname != "" {
+			return hostname
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), options.dnsTimeout)
+	defer cancel()
+	hostnames, err := net.DefaultResolver.LookupAddr(ctx, ip)
+	if err != nil || len(hostnames) == 0 {
+		return ""
+	}
+	return strings.TrimSuffix(hostnames[0], ".")
+}
+
+func resolveHostnameCached(ip string, options enrichmentOptions) string {
+	if options.hostnameCache == nil {
+		return resolveHostname(ip, options)
+	}
+	return options.hostnameCache.resolve(ip, func() string {
+		return resolveHostname(ip, options)
+	})
+}
+
 func envInt(name string, fallback int) int {
 	value, err := strconv.Atoi(os.Getenv(name))
 	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
+}
+
+func envBool(name string, fallback bool) bool {
+	value, err := strconv.ParseBool(os.Getenv(name))
+	if err != nil {
 		return fallback
 	}
 	return value

@@ -5,7 +5,7 @@ import "time"
 type DeviceHistory struct {
 	ID uint `gorm:"primaryKey"`
 
-	DeviceID uint `gorm:"index;not null"`
+	DeviceID uint `gorm:"uniqueIndex;not null"`
 
 	IP           string `gorm:"type:inet;not null"`
 	MAC          string `gorm:"type:varchar(17);not null"`
