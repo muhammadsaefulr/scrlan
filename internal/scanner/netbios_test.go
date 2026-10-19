@@ -27,7 +27,8 @@ func TestParseNetBIOSResponse(t *testing.T) {
 	binary.BigEndian.PutUint16(packet[19:21], 0x0020)
 	binary.BigEndian.PutUint16(packet[21:23], 0x0001)
 	binary.BigEndian.PutUint16(packet[27:29], netBIOSAnswerSize)
-	copy(packet[29:44], "OFFICE-PC      ")
+	packet[29] = 1
+	copy(packet[30:45], "OFFICE-PC      ")
 
 	hostname, err := parseNetBIOSResponse(packet)
 	if err != nil {
