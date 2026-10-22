@@ -12,6 +12,7 @@ const (
 	netBIOSPort       = 137
 	netBIOSNameLength = 15
 	netBIOSAnswerSize = 1 + netBIOSNameLength + 1 + 2
+	netBIOSRecordType = 0x0021
 )
 
 func lookupNetBIOS(ip string, timeout time.Duration) (string, error) {
@@ -91,7 +92,7 @@ func parseNetBIOSResponse(packet []byte) (string, error) {
 		if offset+dataLength > len(packet) {
 			return "", fmt.Errorf("NetBIOS answer data is incomplete")
 		}
-		if recordType == 0x0020 && dataLength >= netBIOSAnswerSize {
+		if recordType == netBIOSRecordType && dataLength >= netBIOSAnswerSize {
 			nameStart := offset + 1
 			nameEnd := nameStart + netBIOSNameLength
 			name := strings.TrimSpace(string(packet[nameStart:nameEnd]))

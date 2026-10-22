@@ -24,7 +24,7 @@ func TestParseNetBIOSResponse(t *testing.T) {
 	binary.BigEndian.PutUint16(packet[15:17], 0x0001)
 	packet[17] = 0xc0
 	packet[18] = 0x0c
-	binary.BigEndian.PutUint16(packet[19:21], 0x0020)
+	binary.BigEndian.PutUint16(packet[19:21], netBIOSRecordType)
 	binary.BigEndian.PutUint16(packet[21:23], 0x0001)
 	binary.BigEndian.PutUint16(packet[27:29], netBIOSAnswerSize)
 	packet[29] = 1
