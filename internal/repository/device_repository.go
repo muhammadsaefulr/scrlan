@@ -30,7 +30,9 @@ func (r *DeviceRepository) Sync(devices []scanner.Device, seenAt time.Time) erro
 			}
 
 			current.MAC = device.MAC
-			current.Hostname = device.Hostname
+			if device.Hostname != "" {
+				current.Hostname = device.Hostname
+			}
 			current.Manufacturer = device.Manufacturer
 			current.Status = model.DeviceStatusOnline
 			current.LastSeen = seenAt

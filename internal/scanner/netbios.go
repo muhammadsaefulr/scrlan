@@ -96,13 +96,22 @@ func parseNetBIOSResponse(packet []byte) (string, error) {
 			nameStart := offset + 1
 			nameEnd := nameStart + netBIOSNameLength
 			name := strings.TrimSpace(string(packet[nameStart:nameEnd]))
-			if name != "" {
+			if name != "" && isNetBIOSHostname(name) {
 				return name, nil
 			}
 		}
 		offset += dataLength
 	}
 	return "", fmt.Errorf("NetBIOS computer name not found")
+}
+
+func isNetBIOSHostname(value string) bool {
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func skipNetBIOSName(packet []byte, offset int) (int, error) {

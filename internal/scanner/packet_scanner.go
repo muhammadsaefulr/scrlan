@@ -45,7 +45,7 @@ func newPacketScanner() *packetScanner {
 		dnsConcurrency: envInt("SCAN_DNS_CONCURRENCY", 32),
 		dnsTimeout:     time.Duration(envInt("SCAN_DNS_TIMEOUT_MS", 150)) * time.Millisecond,
 		netbiosEnabled: envBool("NETBIOS_ENABLED", false),
-		netbiosTimeout: time.Duration(envInt("NETBIOS_TIMEOUT_MS", 300)) * time.Millisecond,
+		netbiosTimeout: time.Duration(envInt("NETBIOS_TIMEOUT_MS", 1000)) * time.Millisecond,
 		hostnameCache:  newHostnameCache(time.Duration(envInt("HOSTNAME_CACHE_TTL_SECONDS", 600)) * time.Second),
 	}
 }
@@ -322,7 +322,7 @@ func enrichDevices(devices []contract.Device, options enrichmentOptions) []contr
 		options.dnsTimeout = 150 * time.Millisecond
 	}
 	if options.netbiosTimeout <= 0 {
-		options.netbiosTimeout = 300 * time.Millisecond
+		options.netbiosTimeout = time.Second
 	}
 	jobs := make(chan int)
 	var wait sync.WaitGroup
@@ -377,11 +377,15 @@ func envInt(name string, fallback int) int {
 }
 
 func envBool(name string, fallback bool) bool {
-	value, err := strconv.ParseBool(os.Getenv(name))
-	if err != nil {
+	value := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(os.Getenv(name), "\ufeff")))
+	switch value {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
 		return fallback
 	}
-	return value
 }
 
 func oui(mac string) string {

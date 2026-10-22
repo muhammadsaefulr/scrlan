@@ -2,7 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +26,7 @@ func NewHandler(devices *repository.DeviceRepository, scan scanner.Scanner, toke
 	mux.HandleFunc("/api/devices", h.devicesList)
 	mux.HandleFunc("/api/scan", h.scan)
 	mux.HandleFunc("/api/metrics/devices", h.deviceMetrics)
+	mux.HandleFunc("/api/metrics/bandwidth", h.bandwidthMetrics)
 	return h.auth(mux)
 }
 
@@ -87,6 +91,78 @@ func (h *Handler) deviceMetrics(w http.ResponseWriter, r *http.Request) {
 		{"metric": "devices_offline", "value": counts["offline"]},
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": data})
+}
+
+func (h *Handler) bandwidthMetrics(w http.ResponseWriter, r *http.Request) {
+	window, err := parseWindow(r.URL.Query().Get("window"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid window")
+		return
+	}
+	limit := 50
+	if value := r.URL.Query().Get("limit"); value != "" {
+		limit, err = strconv.Atoi(value)
+		if err != nil || limit <= 0 || limit > 500 {
+			writeError(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+	}
+	sortField := r.URL.Query().Get("sort")
+	if sortField == "" {
+		sortField = "total_bytes"
+	}
+	if sortField != "total_bytes" && sortField != "bytes_in" && sortField != "bytes_out" {
+		writeError(w, http.StatusBadRequest, "invalid sort")
+		return
+	}
+	order := r.URL.Query().Get("order")
+	if order == "" {
+		order = "desc"
+	}
+	if order != "asc" && order != "desc" {
+		writeError(w, http.StatusBadRequest, "invalid order")
+		return
+	}
+	activityWindow := 60 * time.Second
+	if value := os.Getenv("TRAFFIC_ACTIVITY_WINDOW_SECONDS"); value != "" {
+		seconds, parseErr := strconv.Atoi(value)
+		if parseErr != nil || seconds <= 0 {
+			writeError(w, http.StatusInternalServerError, "invalid traffic activity configuration")
+			return
+		}
+		activityWindow = time.Duration(seconds) * time.Second
+	}
+	if r.URL.Query().Get("by_subnet") == "true" {
+		data, queryErr := h.devices.SubnetBandwidthMetrics(r.Context(), window, activityWindow, limit, sortField, order)
+		if queryErr != nil {
+			writeError(w, http.StatusInternalServerError, "unable to retrieve bandwidth metrics")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": data})
+		return
+	}
+	data, queryErr := h.devices.BandwidthMetrics(r.Context(), window, activityWindow, limit, sortField, order)
+	if queryErr != nil {
+		writeError(w, http.StatusInternalServerError, "unable to retrieve bandwidth metrics")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "data": data})
+}
+
+func parseWindow(value string) (time.Duration, error) {
+	if value == "" {
+		return time.Hour, nil
+	}
+	switch value {
+	case "1h":
+		return time.Hour, nil
+	case "24h":
+		return 24 * time.Hour, nil
+	case "6h":
+		return 6 * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("unsupported window")
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {

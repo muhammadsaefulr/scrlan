@@ -10,9 +10,11 @@ services:
       DB_HOST: host.docker.internal
       DB_PORT: ${DB_PORT:-5432}
       API_ADDR: ${API_ADDR:-:8075}
+      NETFLOW_LISTEN_ADDR: ${NETFLOW_LISTEN_ADDR:-:2055}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     network_mode: host
+    # Host networking exposes UDP 2055 directly to the host.
     cap_add:
       - NET_RAW
       - NET_ADMIN

@@ -16,6 +16,7 @@ import (
 	"github.com/muhammadsaeful/scrlan/internal/model"
 	"github.com/muhammadsaeful/scrlan/internal/repository"
 	"github.com/muhammadsaeful/scrlan/internal/scanner"
+	"github.com/muhammadsaeful/scrlan/internal/traffic"
 	"github.com/muhammadsaeful/scrlan/internal/worker"
 )
 
@@ -32,6 +33,7 @@ func main() {
 	err = db.AutoMigrate(
 		&model.Device{},
 		&model.DeviceHistory{},
+		&model.DeviceTraffic{},
 	)
 	if err != nil {
 		log.Fatalf("failed to migrate database: %v", err)
@@ -64,6 +66,25 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go job.Run(ctx)
+	trafficEnabled := os.Getenv("TRAFFIC_ENABLED") == "true"
+	if trafficEnabled {
+		bucketSeconds := envPositiveInt("TRAFFIC_BUCKET_SECONDS", 10)
+		flushSeconds := envPositiveInt("TRAFFIC_FLUSH_SECONDS", 5)
+		aggregator, aggregatorErr := traffic.NewAggregator(netFrom, netTo, time.Duration(bucketSeconds)*time.Second)
+		if aggregatorErr != nil {
+			log.Printf("traffic collector disabled: %v", aggregatorErr)
+		} else {
+			listenAddr := os.Getenv("NETFLOW_LISTEN_ADDR")
+			if listenAddr == "" {
+				listenAddr = ":2055"
+			}
+			go func() {
+				if collectorErr := traffic.RunCollector(ctx, listenAddr, aggregator, repo, time.Duration(flushSeconds)*time.Second); collectorErr != nil {
+					log.Printf("traffic collector stopped: %v", collectorErr)
+				}
+			}()
+		}
+	}
 
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
@@ -80,4 +101,17 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+}
+
+func envPositiveInt(name string, fallback int) int {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		log.Printf("invalid %s=%q, using %d", name, value, fallback)
+		return fallback
+	}
+	return parsed
 }

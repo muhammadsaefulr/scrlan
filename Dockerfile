@@ -24,4 +24,5 @@ RUN setcap cap_net_raw,cap_net_admin=eip /usr/local/bin/scrlan
 
 USER app
 EXPOSE 8075
+EXPOSE 2055/udp
 ENTRYPOINT ["/usr/local/bin/scrlan"]
