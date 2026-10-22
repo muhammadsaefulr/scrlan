@@ -44,8 +44,8 @@ func newPacketScanner() *packetScanner {
 		manufacturers:  loadManufacturers(os.Getenv("SCAN_OUI_FILE")),
 		dnsConcurrency: envInt("SCAN_DNS_CONCURRENCY", 32),
 		dnsTimeout:     time.Duration(envInt("SCAN_DNS_TIMEOUT_MS", 150)) * time.Millisecond,
-		netbiosEnabled: envBool("NETBIOS_ENABLED", false),
-		netbiosTimeout: time.Duration(envInt("NETBIOS_TIMEOUT_MS", 1000)) * time.Millisecond,
+		netbiosEnabled: envBool("NETBIOS_ENABLED", true),
+		netbiosTimeout: time.Duration(envInt("NETBIOS_TIMEOUT_MS", 500)) * time.Millisecond,
 		hostnameCache:  newHostnameCache(time.Duration(envInt("HOSTNAME_CACHE_TTL_SECONDS", 600)) * time.Second),
 	}
 }
@@ -344,19 +344,45 @@ func enrichDevices(devices []contract.Device, options enrichmentOptions) []contr
 }
 
 func resolveHostname(ip string, options enrichmentOptions) string {
+	type result struct {
+		hostname string
+		netbios  bool
+	}
+	results := make(chan result, 2)
+	lookups := 1
 	if options.netbiosEnabled {
-		if hostname, err := lookupNetBIOS(ip, options.netbiosTimeout); err == nil && hostname != "" {
-			return hostname
+		lookups++
+		go func() {
+			hostname, err := lookupNetBIOS(ip, options.netbiosTimeout)
+			if err == nil && hostname != "" {
+				results <- result{hostname: hostname, netbios: true}
+				return
+			}
+			results <- result{}
+		}()
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), options.dnsTimeout)
+		defer cancel()
+		hostnames, err := net.DefaultResolver.LookupAddr(ctx, ip)
+		if err == nil && len(hostnames) > 0 {
+			results <- result{hostname: strings.TrimSuffix(hostnames[0], ".")}
+			return
+		}
+		results <- result{}
+	}()
+
+	dnsHostname := ""
+	for index := 0; index < lookups; index++ {
+		value := <-results
+		if value.netbios && value.hostname != "" {
+			return value.hostname
+		}
+		if dnsHostname == "" {
+			dnsHostname = value.hostname
 		}
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), options.dnsTimeout)
-	defer cancel()
-	hostnames, err := net.DefaultResolver.LookupAddr(ctx, ip)
-	if err != nil || len(hostnames) == 0 {
-		return ""
-	}
-	return strings.TrimSuffix(hostnames[0], ".")
+	return dnsHostname
 }
 
 func resolveHostnameCached(ip string, options enrichmentOptions) string {
