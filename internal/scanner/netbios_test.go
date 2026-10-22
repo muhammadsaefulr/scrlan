@@ -10,8 +10,9 @@ func TestEncodeNetBIOSName(t *testing.T) {
 	if len(encoded) != 32 {
 		t.Fatalf("encoded name length = %d, want 32", len(encoded))
 	}
-	if string(encoded[:2]) != "CK" {
-		t.Fatalf("encoded wildcard prefix = %q, want CK", encoded[:2])
+	expected := "CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	if string(encoded) != expected {
+		t.Fatalf("encoded wildcard = %q, want %q", string(encoded), expected)
 	}
 }
 

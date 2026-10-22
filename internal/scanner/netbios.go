@@ -52,9 +52,13 @@ func netBIOSQuery() []byte {
 
 func encodeNetBIOSName(name string) []byte {
 	nameBytes := make([]byte, 16)
-	copy(nameBytes, strings.ToUpper(name))
-	for index := len(name); index < 15; index++ {
-		nameBytes[index] = ' '
+	if name == "*" {
+		nameBytes[0] = '*'
+	} else {
+		copy(nameBytes, strings.ToUpper(name))
+		for index := len(name); index < 15; index++ {
+			nameBytes[index] = ' '
+		}
 	}
 	encoded := make([]byte, 32)
 	for index, value := range nameBytes {
@@ -93,11 +97,31 @@ func parseNetBIOSResponse(packet []byte) (string, error) {
 			return "", fmt.Errorf("NetBIOS answer data is incomplete")
 		}
 		if recordType == netBIOSRecordType && dataLength >= netBIOSAnswerSize {
-			nameStart := offset + 1
-			nameEnd := nameStart + netBIOSNameLength
-			name := strings.TrimSpace(string(packet[nameStart:nameEnd]))
-			if name != "" && isNetBIOSHostname(name) {
-				return name, nil
+			numNames := int(packet[offset])
+			entryOffset := offset + 1
+			for i := 0; i < numNames && entryOffset+18 <= offset+dataLength; i++ {
+				name := strings.TrimSpace(string(packet[entryOffset : entryOffset+netBIOSNameLength]))
+				suffix := packet[entryOffset+netBIOSNameLength]
+				flags := binary.BigEndian.Uint16(packet[entryOffset+netBIOSNameLength+1 : entryOffset+netBIOSNameLength+3])
+				isGroup := (flags & 0x8000) != 0
+
+				// Suffix 0x00 is workstation/computer name, 0x20 is server service
+				if !isGroup && (suffix == 0x00 || suffix == 0x20) && isNetBIOSHostname(name) {
+					return name, nil
+				}
+				entryOffset += 18
+			}
+
+			// Fallback: any unique name
+			entryOffset = offset + 1
+			for i := 0; i < numNames && entryOffset+18 <= offset+dataLength; i++ {
+				name := strings.TrimSpace(string(packet[entryOffset : entryOffset+netBIOSNameLength]))
+				flags := binary.BigEndian.Uint16(packet[entryOffset+netBIOSNameLength+1 : entryOffset+netBIOSNameLength+3])
+				isGroup := (flags & 0x8000) != 0
+				if !isGroup && isNetBIOSHostname(name) {
+					return name, nil
+				}
+				entryOffset += 18
 			}
 		}
 		offset += dataLength
