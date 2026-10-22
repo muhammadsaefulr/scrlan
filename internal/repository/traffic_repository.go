@@ -85,12 +85,12 @@ func (r *DeviceRepository) SubnetBandwidthMetrics(ctx context.Context, window, a
 	var rows []SubnetBandwidthMetric
 	orderSQL := metricOrder(sortField, order, "1")
 	err := r.db.WithContext(ctx).Raw(`
-		SELECT set_masklen(d.ip::inet, 24)::text AS subnet,
+		SELECT network(set_masklen(d.ip::inet, 24))::text AS subnet,
 		       COALESCE(SUM(t.bytes_in), 0) AS bytes_in, COALESCE(SUM(t.bytes_out), 0) AS bytes_out,
 		       MAX(t.last_activity_at) AS last_activity_at
 		FROM devices d
 		LEFT JOIN device_traffics t ON t.device_id = d.id AND t.bucket_start >= ?
-		GROUP BY set_masklen(d.ip::inet, 24)
+		GROUP BY network(set_masklen(d.ip::inet, 24))
 		ORDER BY `+orderSQL+`
 		LIMIT ?`, cutoff, limit).Scan(&rows).Error
 	if err != nil {
