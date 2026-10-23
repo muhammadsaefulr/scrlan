@@ -32,8 +32,15 @@ func (p *Parser) parseV9(packet []byte, received time.Time) ([]Flow, error) {
 		return nil, fmt.Errorf("short netflow v9 packet")
 	}
 	count := int(binary.BigEndian.Uint16(packet[2:4]))
+	sysUptime := binary.BigEndian.Uint32(packet[4:8])
 	unix := int64(binary.BigEndian.Uint32(packet[8:12]))
 	base := time.Unix(unix, 0).UTC()
+	if base.Year() < 2000 {
+		base = received
+	}
+	if base.IsZero() {
+		base = time.Now().UTC()
+	}
 	offset := 20
 	flows := make([]Flow, 0)
 	for i := 0; i < count && offset+4 <= len(packet); i++ {
@@ -47,7 +54,7 @@ func (p *Parser) parseV9(packet []byte, received time.Time) ([]Flow, error) {
 			p.parseTemplateSet(payload)
 		} else if setID >= 256 {
 			if t, ok := p.templates[setID]; ok {
-				flows = append(flows, parseRecords(payload, t, base, received)...)
+				flows = append(flows, parseRecords(payload, t, base, sysUptime)...)
 			}
 		}
 		offset += length
@@ -71,7 +78,7 @@ func (p *Parser) parseTemplateSet(payload []byte) {
 	}
 }
 
-func parseRecords(payload []byte, t template, base, received time.Time) []Flow {
+func parseRecords(payload []byte, t template, base time.Time, sysUptime uint32) []Flow {
 	recordSize := 0
 	for _, f := range t.fields {
 		recordSize += int(f.length)
@@ -99,22 +106,29 @@ func parseRecords(payload []byte, t template, base, received time.Time) []Flow {
 				if len(value) == 4 {
 					destination = net.IP(value).To4()
 				}
-			case 1:
-				bytes = number(value)
-			case 2:
-				packets = number(value)
-			case 21, 22:
-				if len(value) == 4 {
-					ts = time.UnixMilli(int64(binary.BigEndian.Uint32(value))).UTC()
+			case 1, 23:
+				if b := number(value); b > 0 && bytes == 0 {
+					bytes = b
+				}
+			case 2, 24:
+				if p := number(value); p > 0 && packets == 0 {
+					packets = p
+				}
+			case 21:
+				if len(value) == 4 && sysUptime > 0 {
+					switched := binary.BigEndian.Uint32(value)
+					if sysUptime >= switched {
+						diffMs := int64(sysUptime - switched)
+						if diffMs < 3600000 {
+							ts = base.Add(-time.Duration(diffMs) * time.Millisecond)
+						}
+					}
 				}
 			}
 		}
 		if source != nil && destination != nil && bytes > 0 {
 			flows = append(flows, Flow{SourceIP: source.String(), DestinationIP: destination.String(), Bytes: bytes, Packets: packets, Timestamp: ts})
 		}
-	}
-	if len(flows) == 0 && received.IsZero() {
-		return nil
 	}
 	return flows
 }

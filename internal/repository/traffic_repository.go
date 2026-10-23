@@ -38,14 +38,34 @@ func (r *DeviceRepository) FlushTraffic(buckets []traffic.Bucket) error {
 	return r.db.Transaction(func(tx *gorm.DB) error {
 		for _, bucket := range buckets {
 			var device model.Device
-			if err := tx.Where("ip = ?", bucket.IP).First(&device).Error; err != nil {
-				if err == gorm.ErrRecordNotFound {
-					continue
-				}
+			if err := tx.Select("id").Where("ip = ?", bucket.IP).Limit(1).Find(&device).Error; err != nil {
 				return err
 			}
-			row := model.DeviceTraffic{DeviceID: device.ID, IP: bucket.IP, BucketStart: bucket.BucketStart, BucketEnd: bucket.BucketEnd, BytesIn: bucket.BytesIn, BytesOut: bucket.BytesOut, PacketsIn: bucket.PacketsIn, PacketsOut: bucket.PacketsOut, LastActivityAt: &bucket.LastActivityAt}
-			if err := tx.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "device_id"}, {Name: "bucket_start"}}, DoUpdates: clause.AssignmentColumns([]string{"bucket_end", "ip", "bytes_in", "bytes_out", "packets_in", "packets_out", "last_activity_at", "updated_at"})}).Create(&row).Error; err != nil {
+			if device.ID == 0 {
+				continue
+			}
+			row := model.DeviceTraffic{
+				DeviceID:       device.ID,
+				IP:             bucket.IP,
+				BucketStart:    bucket.BucketStart,
+				BucketEnd:      bucket.BucketEnd,
+				BytesIn:        bucket.BytesIn,
+				BytesOut:       bucket.BytesOut,
+				PacketsIn:      bucket.PacketsIn,
+				PacketsOut:     bucket.PacketsOut,
+				LastActivityAt: &bucket.LastActivityAt,
+			}
+			if err := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "device_id"}, {Name: "bucket_start"}},
+				DoUpdates: clause.Assignments(map[string]any{
+					"bytes_in":         gorm.Expr("device_traffics.bytes_in + EXCLUDED.bytes_in"),
+					"bytes_out":        gorm.Expr("device_traffics.bytes_out + EXCLUDED.bytes_out"),
+					"packets_in":       gorm.Expr("device_traffics.packets_in + EXCLUDED.packets_in"),
+					"packets_out":      gorm.Expr("device_traffics.packets_out + EXCLUDED.packets_out"),
+					"last_activity_at": gorm.Expr("GREATEST(device_traffics.last_activity_at, EXCLUDED.last_activity_at)"),
+					"updated_at":       time.Now().UTC(),
+				}),
+			}).Create(&row).Error; err != nil {
 				return err
 			}
 		}

@@ -39,6 +39,9 @@ func TestParserNetFlowV9TemplateAndRecord(t *testing.T) {
 	if len(flows) != 1 || flows[0].SourceIP != "192.168.1.20" || flows[0].Bytes != 1000 {
 		t.Fatalf("unexpected flows: %+v", flows)
 	}
+	if flows[0].Timestamp.Year() < 2020 {
+		t.Fatalf("flow timestamp year is %d, expected current year", flows[0].Timestamp.Year())
+	}
 }
 
 func set(payload []byte, id uint16) []byte {

@@ -33,14 +33,18 @@ func (a *Aggregator) Add(flow Flow) {
 	}
 	start := ts.UTC().Truncate(a.bucket)
 	end := start.Add(a.bucket)
-	add := func(ip string, in bool) {
-		if !ipInRange(ip, a.from, a.to) {
+	add := func(ipStr string, in bool) {
+		ip := net.ParseIP(ipStr).To4()
+		if ip == nil || ip[3] == 255 || ip[3] == 0 {
 			return
 		}
-		key := ip + "\x00" + start.Format(time.RFC3339Nano)
+		if !ipInRange(ip, a.from, a.to) && !ip.IsPrivate() {
+			return
+		}
+		key := ipStr + "\x00" + start.Format(time.RFC3339Nano)
 		b := a.buckets[key]
 		if b == nil {
-			b = &Bucket{IP: ip, BucketStart: start, BucketEnd: end}
+			b = &Bucket{IP: ipStr, BucketStart: start, BucketEnd: end}
 			a.buckets[key] = b
 		}
 		if in {
@@ -69,9 +73,11 @@ func (a *Aggregator) Drain() []Bucket {
 	return result
 }
 
-func ipInRange(value string, from, to net.IP) bool {
-	ip := net.ParseIP(value).To4()
-	return ip != nil && bytesCompare(ip, from) >= 0 && bytesCompare(ip, to) <= 0
+func ipInRange(ip net.IP, from, to net.IP) bool {
+	if ip == nil || from == nil || to == nil {
+		return false
+	}
+	return bytesCompare(ip, from) >= 0 && bytesCompare(ip, to) <= 0
 }
 
 func bytesCompare(a, b net.IP) int {
